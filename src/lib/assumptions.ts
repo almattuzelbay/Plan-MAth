@@ -1,7 +1,7 @@
 import type { CareProfile, PriceKey, Prices } from "./types";
 
 /** Version label shown next to the prices so users know they are fixed app assumptions. */
-export const PRICES_VERSION = "PlanMath illustrative prices, Nov 2026";
+export const PRICES_VERSION = "Medi Plan illustrative prices, Nov 2026";
 
 /**
  * Illustrative "allowed amounts" (what a plan recognizes for covered in-network care).

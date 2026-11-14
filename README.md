@@ -1,4 +1,4 @@
-# PlanMath 💲
+# Medi Plan 🩺
 
 **Pick the employer health plan that actually costs you less.**
 Upload your benefits guide → answer 6 questions → see which plan saves you the most money, in dollars.
@@ -67,7 +67,9 @@ src/lib/assumptions.ts    Price assumptions and 2026 IRS limits in one place
 src/lib/normalize.ts      Validates AI output into safe Plan objects
 src/lib/importDoc.ts      Local PDF text extraction + call to the extraction API
 src/data/demo.ts          Fictional "Acme Corp" sample plans
-src/components/           Landing, PlanEditor, HouseholdForm, Results, WhatIfChart, Pricing, Illustrations
+src/components/           Landing (hero, how it works, who it's for, why, FAQ), PlanEditor, HouseholdForm, Results,
+                          CareCosts, WhatIfChart, Pricing, Scenes & Illustrations (hand-made SVG)
+public/images/            Optional photos for the landing cards (see README there)
 ```
 
 ## Run locally
@@ -92,4 +94,4 @@ To test document upload locally, install the Vercel CLI and run `vercel dev` wit
 - Doctor networks and drug formularies are not checked yet — the app tells users to confirm with HR.
 - Separate drug deductibles, out-of-network care, tiered networks and mid-year enrollment are not modeled yet.
 
-PlanMath is an educational calculator, not insurance, medical, tax or financial advice.
+Medi Plan is an educational calculator, not insurance, medical, tax or financial advice.

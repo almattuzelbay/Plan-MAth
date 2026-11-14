@@ -1,4 +1,5 @@
 import { Check } from "lucide-react";
+import { LogoMark } from "./components/Scenes";
 import { useEffect, useMemo, useState } from "react";
 import { HouseholdForm } from "./components/HouseholdForm";
 import { Landing } from "./components/Landing";
@@ -22,7 +23,7 @@ interface Session {
   household: Household;
 }
 
-const STORAGE_KEY = "planmath-session-v3";
+const STORAGE_KEY = "mediplan-session-v1";
 const STEPS: { key: Step; label: string }[] = [
   { key: "plans", label: "Plans" },
   { key: "household", label: "Household" },
@@ -88,12 +89,19 @@ export default function App() {
   return (
     <div className="app">
       <header className="top no-print">
-        <button className="logo" onClick={restart} aria-label="PlanMath home">
-          <span className="logo-mark">$</span> PlanMath
+        <button className="logo" onClick={restart} aria-label="Medi Plan home">
+          <LogoMark /> <span>Medi<b>Plan</b></span>
         </button>
         <nav className="top-links">
-          <span className="beta">Beta</span>
+          {s.step === "landing" && (
+            <>
+              <a href="#how">How it works</a>
+              <a href="#who">Who it's for</a>
+              <a href="#faq">FAQ</a>
+            </>
+          )}
           <button className="link" onClick={() => setShowPricing(true)}>Pricing</button>
+          <span className="beta">Beta</span>
         </nav>
       </header>
 
@@ -171,7 +179,8 @@ export default function App() {
       </main>
 
       <footer className="foot">
-        PlanMath is an educational calculator, not insurance, medical, tax or financial advice. Estimates depend on your
+        <div className="foot-brand"><LogoMark size={24} /> <b>Medi Plan</b> · Built for Business Cup 2.0</div>
+        Medi Plan is an educational calculator, not insurance, medical, tax or financial advice. Estimates depend on your
         inputs and typical prices; confirm plan details, networks and drug lists with your HR team or insurer. We don't sell
         insurance and don't store your documents or answers.
       </footer>
