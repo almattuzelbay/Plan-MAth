@@ -5,6 +5,7 @@ import { employerHsaFor, savingsVs, totalAllowed } from "../lib/calc";
 import { usd } from "../lib/format";
 import type { Household, Recommendation, ScenarioKey } from "../lib/types";
 import { CareCosts } from "./CareCosts";
+import { PlanTerms } from "./PlanTerms";
 import { WhatIfChart } from "./WhatIfChart";
 
 interface Props {
@@ -54,7 +55,8 @@ export function Results({ rec, household, onHousehold, onEdit, onEditPlans, onRe
         </p>
         <p className="small">
           Based on {usd(expectedAllowed)} of allowed charges for covered in-network care.{" "}
-          <a className="link" href="#care-costs">View care cost assumptions</a>
+          <a className="link screen-only" href="#care-costs">View care cost assumptions</a>
+          <span className="print-only">See "Care cost assumptions" below.</span>
         </p>
         {results.length > 1 && !tied && (
           <div className="compare-line">
@@ -64,7 +66,8 @@ export function Results({ rec, household, onHousehold, onEdit, onEditPlans, onRe
             ) : (
               <span>
                 <b className="good">{usd(diff)}</b> less in the {scenarioInfo.label.toLowerCase()} than{" "}
-                <select value={baselineId} onChange={(e) => setBaselineId(e.target.value)} aria-label="Compare with">
+                <span className="print-only">{baseline.plan.name}.</span>
+                <select className="screen-only" value={baselineId} onChange={(e) => setBaselineId(e.target.value)} aria-label="Compare with">
                   {results.map((r) => (
                     <option key={r.plan.id} value={r.plan.id}>
                       {r.plan.name}
@@ -138,6 +141,8 @@ export function Results({ rec, household, onHousehold, onEdit, onEditPlans, onRe
         </table>
       </div>
       <p className="fineprint">Taxes {household.includeTaxes ? `included at ${Math.round(household.taxRate * 100)}% for HSA plans only` : "not included"}. Annual estimate under the assumptions below.</p>
+
+      <PlanTerms plans={results.map((r) => r.plan)} coverage={coverage} />
 
       <CareCosts
         household={household}

@@ -29,6 +29,7 @@ Return ONLY JSON in exactly this shape:
     {
       "name": "plan name as written",
       "type": "PPO" | "HMO" | "EPO" | "POS" | "HDHP" | "Other",
+      "planYear": "e.g. 2027 or FY27, as written" | null,
       "premiumPeriodsPerYear": 12,
       "premiums": { "employee": number|null, "employeeSpouse": number|null, "employeeChildren": number|null, "family": number|null },
       "deductible": { "individual": number|null, "family": number|null },

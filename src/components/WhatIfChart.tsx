@@ -7,7 +7,8 @@ import type { CoverageTier, Plan } from "../lib/types";
 const COLORS = ["#6d5df6", "#10b981", "#f59e0b", "#ef4444", "#0ea5e9", "#a855f7"];
 const W = 640;
 const H = 260;
-const PAD = { l: 56, r: 16, t: 16, b: 34 };
+// Right padding leaves room for the last x-axis label (e.g. "$40,000") so it is never clipped.
+const PAD = { l: 60, r: 44, t: 16, b: 34 };
 
 interface Props {
   plans: Plan[];
@@ -45,7 +46,7 @@ export function WhatIfChart({ plans, coverage, expectedSpend }: Props) {
         <span className={`mode ${whatIf ? "mode-whatif" : ""}`}>{whatIf ? "What-if scenario" : "Expected scenario"}</span>
         <span className="muted small">Expected scenario: {usd(start)} of allowed charges</span>
         {whatIf && (
-          <button className="link small" onClick={() => setSpend(start)}>
+          <button className="link small screen-only" onClick={() => setSpend(start)}>
             <RotateCcw size={13} /> Reset to expected scenario
           </button>
         )}
@@ -77,8 +78,10 @@ export function WhatIfChart({ plans, coverage, expectedSpend }: Props) {
         ))}
       </svg>
       <label className="slider-label">
-        Total allowed charges for covered in-network care: <b>{usd(spend)}</b>
-        <input type="range" min={0} max={maxSpend} step={10} value={spend} onChange={(e) => setSpend(Number(e.target.value))} />
+        {whatIf ? "What-if scenario (manually selected)" : "Expected scenario"} — total allowed charges for covered
+        in-network care: <b>{usd(spend)}</b>
+        {whatIf && <span className="print-only"> · The expected scenario above uses {usd(start)}.</span>}
+        <input className="screen-only" type="range" min={0} max={maxSpend} step={10} value={spend} onChange={(e) => setSpend(Number(e.target.value))} />
       </label>
       <div className="legend">
         {at.map(({ p, i, c }) => {

@@ -18,6 +18,8 @@ export interface Plan {
   id: string;
   name: string;
   type: PlanType;
+  /** Plan year as stated in the document, e.g. "2027" or "FY27". null = not provided. */
+  planYear: string | null;
   /**
    * Employee contribution per pay period, exactly as the document states it, by coverage tier.
    * null = not provided. Annual premium = amount × premiumPeriods (no rounding through monthly values).

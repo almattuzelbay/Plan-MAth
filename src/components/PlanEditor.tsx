@@ -234,6 +234,15 @@ export function PlanEditor({ company, plans, notes, onChange, onBack, onNext }: 
           <tbody>
             <tr className="section-row"><td colSpan={plans.length + 1}>Plan rules</td></tr>
             <tr>
+              <td className="row-label sticky-col">Plan year<small>as written in the document</small></td>
+              {plans.map((p, i) => (
+                <td key={p.id}>
+                  <input className="name" value={p.planYear ?? ""} placeholder="Not provided" aria-label={`${p.name}: plan year`}
+                    onChange={(e) => update(i, { ...p, planYear: e.target.value.trim() ? e.target.value : null })} />
+                </td>
+              ))}
+            </tr>
+            <tr>
               <td className="row-label sticky-col">HSA-eligible<small>usually high-deductible plans</small></td>
               {plans.map((p, i) => (
                 <td key={p.id}>

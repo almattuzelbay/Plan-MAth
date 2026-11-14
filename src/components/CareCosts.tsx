@@ -20,16 +20,16 @@ export function CareCosts({ household, scenario, scenarioLabel, onPrices }: Prop
 
   return (
     <div className="care-costs" id="care-costs">
-      <div className="care-head">
+      <div className="care-head screen-block">
         <div>
           <h3>Care cost assumptions — {scenarioLabel.toLowerCase()}</h3>
           <p className="muted small">
-            Illustrative allowed amounts ({PRICES_VERSION}) — not your plan's negotiated prices and not a forecast. Edit
-            any price; every total updates.
+            Illustrative allowed amounts ({PRICES_VERSION}) — not your plan's negotiated prices and not a forecast.
+            <span className="screen-only"> Edit any price; every total updates.</span>
           </p>
         </div>
         {edited && (
-          <button className="btn btn-ghost btn-small-plain" onClick={() => onPrices({ ...SERVICE_COST })}>
+          <button className="btn btn-ghost btn-small-plain screen-only" onClick={() => onPrices({ ...SERVICE_COST })}>
             <RotateCcw size={14} /> Reset prices
           </button>
         )}
@@ -37,6 +37,12 @@ export function CareCosts({ household, scenario, scenarioLabel, onPrices }: Prop
       <div className="table-wrap">
         <table className="breakdown">
           <thead>
+            <tr className="print-row">
+              <th colSpan={4} className="print-title">
+                Care cost assumptions — {scenarioLabel.toLowerCase()}
+                <small>Illustrative allowed amounts ({PRICES_VERSION}) — not your plan's negotiated prices and not a forecast.</small>
+              </th>
+            </tr>
             <tr>
               <th>Service</th>
               <th>Count / year</th>
@@ -58,7 +64,8 @@ export function CareCosts({ household, scenario, scenarioLabel, onPrices }: Prop
                   {r.priceKey.endsWith("RxMonth") && <small className="muted"> fills ({r.count / 12} medicine{r.count / 12 > 1 ? "s" : ""} × 12)</small>}
                 </td>
                 <td>
-                  <div className="money">
+                  <span className="print-only">{usd(household.prices[r.priceKey])}</span>
+                  <div className="money screen-only">
                     <span>$</span>
                     <input
                       type="number"

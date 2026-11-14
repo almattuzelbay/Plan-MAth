@@ -40,6 +40,7 @@ export function normalizePlan(raw: any, index: number): Plan {
     id: `plan-${Date.now()}-${index}`,
     name: String(raw?.name || `Plan ${index + 1}`).slice(0, 60),
     type,
+    planYear: raw?.planYear ? String(raw.planYear).slice(0, 20) : null,
     premiumPeriods,
     premiums,
     deductible: { individual: toNumber(raw?.deductible?.individual), family: toNumber(raw?.deductible?.family) },

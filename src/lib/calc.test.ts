@@ -51,6 +51,18 @@ describe("control values from the corrections document", () => {
     );
     expect(missingFor(planB, "employee")).toEqual([]);
   });
+  it("acceptance A: edited-price scenario gives $4,018 vs $4,236 (difference $218)", () => {
+    const h = single();
+    h.prices = { ...h.prices, primaryVisit: 280 };
+    h.members[0] = { ...h.members[0], primaryVisits: 4, specialistVisits: 3, therapySessions: 3, erVisits: 1, labsImaging: 1 };
+    expect(totalAllowed(h, "expected")).toBe(5180);
+    const rec = recommend([planA, planB], h)!;
+    const a = rec.results.find((r) => r.plan.id === "a")!.scenarios.expected;
+    const b = rec.results.find((r) => r.plan.id === "b")!.scenarios.expected;
+    expect([a.outOfPocket, a.total]).toEqual([1418, 4018]);
+    expect([b.outOfPocket, b.premiums + b.outOfPocket, b.employerHsa, b.total]).toEqual([3436, 4736, 500, 4236]);
+    expect(b.total - a.total).toBe(218);
+  });
   it("reports a tie instead of a unique winner when totals are equal", () => {
     const h = single();
     h.members[0] = { ...h.members[0], primaryVisits: 0, labsImaging: 0 };
