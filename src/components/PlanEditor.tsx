@@ -1,6 +1,8 @@
 import { AlertCircle, ChevronDown, Plus, Quote, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { blankPlan } from "../lib/normalize";
+import { annualPremium } from "../lib/calc";
+import { usd } from "../lib/format";
 import type { Copays, CoverageTier, Plan, PlanType } from "../lib/types";
 import { EmptyPlansArt } from "./Illustrations";
 
@@ -28,7 +30,7 @@ interface Row {
 
 const SECTIONS: { title: string; rows: Row[]; collapsible?: boolean }[] = [
   {
-    title: "Your premium per month",
+    title: "Your premium per paycheck",
     rows: [
       { label: "Just you", field: { kind: "premium", tier: "employee" }, required: true },
       { label: "You + spouse", field: { kind: "premium", tier: "employeeSpouse" } },
@@ -50,7 +52,7 @@ const SECTIONS: { title: string; rows: Row[]; collapsible?: boolean }[] = [
     title: "Copays",
     collapsible: true,
     rows: [
-      { label: "Primary care visit", field: { kind: "copay", key: "primary" }, hint: "empty = you pay toward the deductible" },
+      { label: "Primary care visit", field: { kind: "copay", key: "primary" }, hint: "empty = deductible, then coinsurance (not free)" },
       { label: "Specialist visit", field: { kind: "copay", key: "specialist" } },
       { label: "Urgent care", field: { kind: "copay", key: "urgentCare" } },
       { label: "Emergency room", field: { kind: "copay", key: "er" } },
@@ -62,7 +64,7 @@ const SECTIONS: { title: string; rows: Row[]; collapsible?: boolean }[] = [
   {
     title: "Employer HSA money per year",
     rows: [
-      { label: "Individual", field: { kind: "pair", group: "employerHsa", key: "individual" } },
+      { label: "Individual", field: { kind: "pair", group: "employerHsa", key: "individual" }, hint: "enter 0 if the employer adds nothing" },
       { label: "Family", field: { kind: "pair", group: "employerHsa", key: "family" } },
     ],
   },
@@ -88,7 +90,7 @@ function write(p: Plan, f: Field, v: number | null): Plan {
     case "premium":
       return { ...p, premiums: { ...p.premiums, [f.tier]: v } };
     case "pair":
-      return { ...p, [f.group]: { ...p[f.group], [f.key]: f.group === "employerHsa" ? v ?? 0 : v } } as Plan;
+      return { ...p, [f.group]: { ...p[f.group], [f.key]: v } } as Plan;
     case "copay":
       return { ...p, copays: { ...p.copays, [f.key]: v } };
     case "coinsurance":
@@ -148,6 +150,18 @@ export function PlanEditor({ company, plans, notes, onChange, onBack, onNext }: 
                     >
                       {TYPES.map((t) => <option key={t}>{t}</option>)}
                     </select>
+                    <select
+                      value={p.premiumPeriods}
+                      aria-label="Premium deductions per year"
+                      title="How often the premium is deducted"
+                      onChange={(e) => update(i, { ...p, premiumPeriods: Number(e.target.value) })}
+                    >
+                      <option value={26}>every 2 weeks (26)</option>
+                      <option value={24}>twice a month (24)</option>
+                      <option value={12}>monthly (12)</option>
+                      <option value={52}>weekly (52)</option>
+                      <option value={1}>per year (1)</option>
+                    </select>
                     {plans.length > 1 && (
                       <button className="icon-btn" aria-label={`Remove ${p.name}`} onClick={() => remove(i)}>
                         <Trash2 size={15} />
@@ -186,6 +200,10 @@ export function PlanEditor({ company, plans, notes, onChange, onBack, onNext }: 
                         const copayOff = row.field.kind === "copay" && p.type === "HDHP";
                         const hsaOff = row.field.kind === "pair" && row.field.group === "employerHsa" && !p.hsaEligible;
                         const empty = v === null && row.required;
+                        const isPremium = row.field.kind === "premium";
+                        const placeholder = copayOff || row.field.kind === "copay"
+                          ? "deductible + coins."
+                          : empty ? "missing" : "Not provided";
                         return (
                           <td key={p.id}>
                             <div className={`money ${empty ? "money-missing" : ""}`}>
@@ -196,12 +214,15 @@ export function PlanEditor({ company, plans, notes, onChange, onBack, onNext }: 
                                 inputMode="decimal"
                                 disabled={copayOff || hsaOff}
                                 value={v === null ? "" : v}
-                                placeholder={copayOff ? "deductible" : empty ? "missing" : "—"}
+                                placeholder={placeholder}
                                 aria-label={`${p.name}: ${row.label}`}
                                 onChange={(e) => update(i, write(p, row.field, e.target.value === "" ? null : Number(e.target.value)))}
                               />
                               {isPct && <span>%</span>}
                             </div>
+                            {isPremium && v !== null && row.field.kind === "premium" && (
+                              <small className="annual">= {usd(annualPremium(p, row.field.tier))} / year</small>
+                            )}
                           </td>
                         );
                       })}
@@ -224,13 +245,18 @@ export function PlanEditor({ company, plans, notes, onChange, onBack, onNext }: 
               ))}
             </tr>
             <tr>
-              <td className="row-label sticky-col">Embedded family deductible<small>off = whole family deductible first</small></td>
+              <td className="row-label sticky-col">Family deductible type<small>only matters with a spouse or children</small></td>
               {plans.map((p, i) => (
                 <td key={p.id}>
-                  <label className="switch">
-                    <input type="checkbox" checked={p.embeddedDeductible} onChange={(e) => update(i, { ...p, embeddedDeductible: e.target.checked })} />
-                    <span />
-                  </label>
+                  <select
+                    value={p.embeddedDeductible === null ? "" : p.embeddedDeductible ? "embedded" : "aggregate"}
+                    aria-label={`${p.name}: family deductible type`}
+                    onChange={(e) => update(i, { ...p, embeddedDeductible: e.target.value === "" ? null : e.target.value === "embedded" })}
+                  >
+                    <option value="">Not provided</option>
+                    <option value="embedded">Embedded (per person)</option>
+                    <option value="aggregate">Aggregate (whole family)</option>
+                  </select>
                 </td>
               ))}
             </tr>
@@ -255,7 +281,7 @@ export function PlanEditor({ company, plans, notes, onChange, onBack, onNext }: 
       )}
 
       {missingRequired && (
-        <p className="warn"><AlertCircle size={16} /> Some plans are missing a premium, deductible or out-of-pocket max. Plans with missing numbers are left out of the comparison instead of being treated as $0.</p>
+        <p className="warn"><AlertCircle size={16} /> Some plans are missing a premium, deductible or out-of-pocket max. Plans with missing numbers are left out of the comparison instead of being treated as $0. "Not provided" family fields are only needed if you add a spouse or children.</p>
       )}
 
       <div className="nav">

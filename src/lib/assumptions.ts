@@ -1,10 +1,14 @@
-import type { CareProfile } from "./types";
+import type { CareProfile, PriceKey, Prices } from "./types";
+
+/** Version label shown next to the prices so users know they are fixed app assumptions. */
+export const PRICES_VERSION = "PlanMath illustrative prices, Nov 2026";
 
 /**
- * Typical "allowed amounts" (what an insurer pays an in-network provider), national ballpark.
- * Kept in one place so they are easy to review. Estimates, not quotes — real prices vary by plan and city.
+ * Illustrative "allowed amounts" (what a plan recognizes for covered in-network care).
+ * App constants, not market averages from a verified source and not a personal forecast.
+ * Users can edit every value on the results screen.
  */
-export const SERVICE_COST = {
+export const SERVICE_COST: Prices = {
   primaryVisit: 180,
   specialistVisit: 320,
   therapySession: 150,
@@ -21,16 +25,28 @@ export const SERVICE_COST = {
   surgery: 22000,
   /** "Bad year" shock for one adult: an unplanned hospital stay. */
   hospitalization: 45000,
-} as const;
+};
 
-/** IRS limits for the 2027 plan year (HSA). FSA uses the 2026 limit until the 2027 figure is confirmed. */
-export const ACCOUNT_LIMITS = {
-  hsa: { individual: 4500, family: 9000 },
-  healthFsa: 3400,
-} as const;
+export const PRICE_LABELS: Record<PriceKey, { label: string; unit: string }> = {
+  primaryVisit: { label: "Doctor visit", unit: "per visit" },
+  specialistVisit: { label: "Specialist visit", unit: "per visit" },
+  therapySession: { label: "Therapy session", unit: "per session" },
+  urgentCareVisit: { label: "Urgent care visit", unit: "per visit" },
+  erVisit: { label: "Emergency room visit", unit: "per visit" },
+  labOrImaging: { label: "Lab test, X-ray or scan", unit: "per test" },
+  genericRxMonth: { label: "Generic medication", unit: "per 30-day fill" },
+  brandRxMonth: { label: "Brand-name medication", unit: "per 30-day fill" },
+  specialtyRxMonth: { label: "Specialty medication", unit: "per 30-day fill" },
+  baby: { label: "Pregnancy, delivery & newborn care", unit: "per birth" },
+  surgery: { label: "Planned surgery or procedure", unit: "per procedure" },
+  hospitalization: { label: "Unplanned hospital stay (bad year only)", unit: "per stay" },
+};
 
-/** FSA money is "use it or lose it", so we suggest contributing a bit less than expected spend. */
-export const FSA_SAFETY_FACTOR = 0.85;
+/** IRS HSA contribution limits for 2027 (employer money counts toward them). */
+export const HSA_LIMITS = { individual: 4500, family: 9000 } as const;
+
+/** Default number of therapy sessions when "Therapy or counseling" is ticked (editable). */
+export const DEFAULT_THERAPY_SESSIONS = 24;
 
 /** In a "light year" people use about half of the care they expect. */
 export const LIGHT_YEAR_FACTOR = 0.5;
@@ -44,7 +60,6 @@ export const PROFILE_EFFECTS: Record<
     adds: {
       primaryVisits?: number;
       specialistVisits?: number;
-      therapySessions?: number;
       urgentCareVisits?: number;
       labsImaging?: number;
       brandRx?: number;
@@ -62,8 +77,8 @@ export const PROFILE_EFFECTS: Record<
   },
   therapy: {
     label: "Therapy or counseling",
-    hint: "adds 24 sessions (about twice a month)",
-    adds: { therapySessions: 24 },
+    hint: "sets therapy sessions to 24 a year (about twice a month) — you can change the number below",
+    adds: {},
   },
   pregnancy: {
     label: "Pregnancy / having a baby",

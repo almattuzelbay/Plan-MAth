@@ -1,10 +1,4 @@
-import {
-  ACCOUNT_LIMITS,
-  FSA_SAFETY_FACTOR,
-  LIGHT_YEAR_FACTOR,
-  PROFILE_EFFECTS,
-  SERVICE_COST,
-} from "./assumptions";
+import { HSA_LIMITS, LIGHT_YEAR_FACTOR, PROFILE_EFFECTS } from "./assumptions";
 import type {
   Copays,
   CoverageTier,
@@ -12,6 +6,7 @@ import type {
   Member,
   Plan,
   PlanResult,
+  PriceKey,
   Recommendation,
   ScenarioKey,
   ScenarioResult,
@@ -20,12 +15,22 @@ import type {
 /** A priced unit of care for one person. `copay` names the copay that applies, if the plan has one. */
 export interface Service {
   memberIndex: number;
+  priceKey: PriceKey;
   allowed: number;
   count: number;
   copay: keyof Copays | null;
 }
 
+/** One line of the care-cost breakdown shown to the user (summed over household members). */
+export interface BreakdownRow {
+  priceKey: PriceKey;
+  count: number;
+  unitPrice: number;
+  subtotal: number;
+}
+
 const round = (n: number) => Math.round(n);
+const cents = (n: number) => Math.round(n * 100) / 100;
 
 /** Coverage tier follows from who is on the plan. */
 export function coverageFor(members: Member[]): CoverageTier {
@@ -37,12 +42,12 @@ export function coverageFor(members: Member[]): CoverageTier {
   return "employee";
 }
 
-/** A person's yearly usage after adding the care profiles they ticked. */
+/** A person's yearly usage after adding the care profiles they ticked. Therapy is its own editable field. */
 export function effectiveUsage(m: Member) {
   const u = {
     primaryVisits: m.primaryVisits,
     specialistVisits: m.specialistVisits,
-    therapySessions: 0,
+    therapySessions: m.therapySessions ?? 0,
     urgentCareVisits: m.urgentCareVisits,
     erVisits: m.erVisits,
     labsImaging: m.labsImaging,
@@ -55,7 +60,6 @@ export function effectiveUsage(m: Member) {
     const a = PROFILE_EFFECTS[p].adds;
     u.primaryVisits += a.primaryVisits ?? 0;
     u.specialistVisits += a.specialistVisits ?? 0;
-    u.therapySessions += a.therapySessions ?? 0;
     u.urgentCareVisits += a.urgentCareVisits ?? 0;
     u.labsImaging += a.labsImaging ?? 0;
     u.brandRx += a.brandRx ?? 0;
@@ -65,37 +69,51 @@ export function effectiveUsage(m: Member) {
   return u;
 }
 
-/** The services the household uses in each scenario. */
+/** The services the household uses in each scenario, priced with the household's (editable) prices. */
 export function buildScenario(h: Household, key: ScenarioKey): Service[] {
   const services: Service[] = [];
   const scale = (n: number) => (key === "light" ? Math.round(n * LIGHT_YEAR_FACTOR) : n);
 
   h.members.forEach((m, i) => {
     const u = effectiveUsage(m);
-    const add = (allowed: number, count: number, copay: keyof Copays | null) => {
-      if (count > 0) services.push({ memberIndex: i, allowed, count, copay });
+    const add = (priceKey: PriceKey, count: number, copay: keyof Copays | null) => {
+      if (count > 0) services.push({ memberIndex: i, priceKey, allowed: h.prices[priceKey], count, copay });
     };
-    add(SERVICE_COST.primaryVisit, scale(u.primaryVisits), "primary");
-    add(SERVICE_COST.specialistVisit, scale(u.specialistVisits), "specialist");
-    add(SERVICE_COST.therapySession, scale(u.therapySessions), "primary"); // mental health office visits usually use the PCP copay
-    add(SERVICE_COST.urgentCareVisit, scale(u.urgentCareVisits), "urgentCare");
-    add(SERVICE_COST.erVisit, key === "light" ? 0 : u.erVisits, "er");
-    add(SERVICE_COST.labOrImaging, scale(u.labsImaging), null);
-    // Ongoing prescriptions are filled every month in every scenario.
-    add(SERVICE_COST.genericRxMonth, u.genericRx * 12, "genericRx");
-    add(SERVICE_COST.brandRxMonth, u.brandRx * 12, "brandRx");
-    add(SERVICE_COST.specialtyRxMonth, u.specialtyRx * 12, "specialtyRx");
-    if (key !== "light") {
-      for (const e of u.events) add(e === "baby" ? SERVICE_COST.baby : SERVICE_COST.surgery, 1, null);
-    }
+    add("primaryVisit", scale(u.primaryVisits), "primary");
+    add("specialistVisit", scale(u.specialistVisits), "specialist");
+    add("therapySession", scale(u.therapySessions), "primary"); // mental health office visits usually use the PCP copay
+    add("urgentCareVisit", scale(u.urgentCareVisits), "urgentCare");
+    add("erVisit", key === "light" ? 0 : u.erVisits, "er");
+    add("labOrImaging", scale(u.labsImaging), null);
+    // Ongoing prescriptions: medicines per month × 12 fills, in every scenario.
+    add("genericRxMonth", u.genericRx * 12, "genericRx");
+    add("brandRxMonth", u.brandRx * 12, "brandRx");
+    add("specialtyRxMonth", u.specialtyRx * 12, "specialtyRx");
+    if (key !== "light") for (const e of u.events) add(e, 1, null);
   });
 
   if (key === "bad") {
     const adult = Math.max(0, h.members.findIndex((m) => m.role !== "child"));
-    services.push({ memberIndex: adult, allowed: SERVICE_COST.hospitalization, count: 1, copay: null });
+    services.push({ memberIndex: adult, priceKey: "hospitalization", allowed: h.prices.hospitalization, count: 1, copay: null });
   }
   return services;
 }
+
+/** Count × price per service type, the same numbers the cost engine uses. */
+export function breakdown(h: Household, key: ScenarioKey): BreakdownRow[] {
+  const rows = new Map<PriceKey, BreakdownRow>();
+  for (const s of buildScenario(h, key)) {
+    const row = rows.get(s.priceKey) ?? { priceKey: s.priceKey, count: 0, unitPrice: s.allowed, subtotal: 0 };
+    row.count += s.count;
+    row.subtotal += s.count * s.allowed;
+    rows.set(s.priceKey, row);
+  }
+  return [...rows.values()];
+}
+
+/** Total allowed charges for covered in-network care in a scenario. */
+export const totalAllowed = (h: Household, key: ScenarioKey) =>
+  breakdown(h, key).reduce((sum, r) => sum + r.subtotal, 0);
 
 /**
  * What the household pays for care under one plan.
@@ -103,12 +121,14 @@ export function buildScenario(h: Household, key: ScenarioKey): Service[] {
  *  - embedded deductible: a person stops paying the deductible at the individual amount;
  *  - aggregate deductible: nobody gets coinsurance until the family deductible is met;
  *  - out-of-pocket max is always capped per person (individual) and for the family.
+ * Callers must check missingFor() first; unknown values are never silently treated as 0 there.
  */
 export function outOfPocket(plan: Plan, services: Service[], memberCount: number, family: boolean): number {
   const dInd = plan.deductible.individual ?? 0;
-  const dFam = plan.deductible.family ?? dInd * 2;
+  const dFam = plan.deductible.family ?? Infinity;
   const mInd = plan.outOfPocketMax.individual ?? Infinity;
-  const mFam = plan.outOfPocketMax.family ?? mInd * 2;
+  const mFam = plan.outOfPocketMax.family ?? Infinity;
+  const embedded = plan.embeddedDeductible ?? true;
 
   const dedPaid = new Array(memberCount).fill(0);
   const oopPaid = new Array(memberCount).fill(0);
@@ -117,7 +137,7 @@ export function outOfPocket(plan: Plan, services: Service[], memberCount: number
 
   const deductibleLeft = (i: number) => {
     if (!family) return Math.max(0, dInd - dedPaid[i]);
-    if (plan.embeddedDeductible) return Math.max(0, Math.min(dInd - dedPaid[i], dFam - famDed));
+    if (embedded) return Math.max(0, Math.min(dInd - dedPaid[i], dFam - famDed));
     return Math.max(0, dFam - famDed);
   };
   const oopLeft = (i: number) =>
@@ -144,48 +164,57 @@ export function outOfPocket(plan: Plan, services: Service[], memberCount: number
   return famOop;
 }
 
-/** Pre-tax account the household should fund, decided once at enrollment from the expected year. */
-export function suggestAccount(plan: Plan, family: boolean, expectedOop: number) {
-  if (plan.hsaEligible) {
-    const employer = family ? plan.employerHsa.family : plan.employerHsa.individual;
-    const limit = (family ? ACCOUNT_LIMITS.hsa.family : ACCOUNT_LIMITS.hsa.individual) - employer;
-    const amount = Math.max(0, Math.min(limit, expectedOop - employer));
-    return { kind: "HSA" as const, amount: Math.floor(amount / 50) * 50 };
-  }
-  const amount = Math.min(ACCOUNT_LIMITS.healthFsa, expectedOop * FSA_SAFETY_FACTOR);
-  return { kind: "FSA" as const, amount: Math.floor(amount / 50) * 50 };
+/** Annual premium straight from the stored per-period amount — never rebuilt from rounded monthly figures. */
+export function annualPremium(plan: Plan, coverage: CoverageTier): number {
+  return cents((plan.premiums[coverage] ?? 0) * plan.premiumPeriods);
 }
 
-/** Numbers that must be present to compare a plan for this coverage tier. */
+export function employerHsaFor(plan: Plan, coverage: CoverageTier): number {
+  if (!plan.hsaEligible) return 0;
+  return (coverage === "employee" ? plan.employerHsa.individual : plan.employerHsa.family) ?? 0;
+}
+
+/** Numbers that must be known to compare a plan for this coverage tier. */
 export function missingFor(plan: Plan, coverage: CoverageTier): string[] {
   const family = coverage !== "employee";
   const missing: string[] = [];
   if (plan.premiums[coverage] === null) missing.push("premium for this coverage level");
-  if (plan.deductible.individual === null) missing.push("deductible");
-  if (plan.outOfPocketMax.individual === null) missing.push("out-of-pocket max");
-  if (family && plan.outOfPocketMax.family === null) missing.push("family out-of-pocket max");
+  if (plan.deductible.individual === null) missing.push("individual deductible");
+  if (plan.outOfPocketMax.individual === null) missing.push("individual out-of-pocket max");
+  if (family) {
+    if (plan.deductible.family === null) missing.push("family deductible");
+    if (plan.outOfPocketMax.family === null) missing.push("family out-of-pocket max");
+    if (plan.embeddedDeductible === null) missing.push("embedded or aggregate deductible");
+  }
+  if (plan.hsaEligible && (family ? plan.employerHsa.family : plan.employerHsa.individual) === null) {
+    missing.push(`employer HSA contribution (${family ? "family" : "individual"}; enter 0 if none)`);
+  }
   return missing;
+}
+
+/** HSA contribution that would cover expected bills after the employer's money, within the 2027 limit. */
+export function suggestHsa(plan: Plan, coverage: CoverageTier, expectedOop: number): number | null {
+  if (!plan.hsaEligible) return null;
+  const employer = employerHsaFor(plan, coverage);
+  const limit = (coverage === "employee" ? HSA_LIMITS.individual : HSA_LIMITS.family) - employer;
+  return Math.floor(Math.max(0, Math.min(limit, expectedOop - employer)) / 50) * 50;
 }
 
 export function evaluatePlan(plan: Plan, h: Household): PlanResult {
   const coverage = coverageFor(h.members);
   const family = coverage !== "employee";
-  const premiums = (plan.premiums[coverage] ?? 0) * 12;
-  const employerHsa = plan.hsaEligible ? (family ? plan.employerHsa.family : plan.employerHsa.individual) : 0;
+  const premiums = annualPremium(plan, coverage);
+  const employerHsa = employerHsaFor(plan, coverage);
 
   const oopFor = (key: ScenarioKey) => outOfPocket(plan, buildScenario(h, key), h.members.length, family);
   const oop = { light: oopFor("light"), expected: oopFor("expected"), bad: oopFor("bad") };
-  const account = suggestAccount(plan, family, oop.expected);
+  const hsa = suggestHsa(plan, coverage, oop.expected);
 
   const scenario = (key: ScenarioKey): ScenarioResult => {
-    let taxSavings = 0;
-    if (h.includeTaxes) {
-      taxSavings = account.amount * h.taxRate;
-      // FSA is use-it-or-lose-it: unspent money is forfeited.
-      if (account.kind === "FSA") taxSavings -= Math.max(0, account.amount - oop[key]);
-    }
+    // Tax effect only for an HSA the user funds, and only when the user switches taxes on.
+    const taxSavings = h.includeTaxes && hsa ? hsa * h.taxRate : 0;
     return {
-      premiums: round(premiums),
+      premiums: cents(premiums),
       outOfPocket: round(oop[key]),
       employerHsa: round(employerHsa),
       taxSavings: round(taxSavings),
@@ -196,7 +225,7 @@ export function evaluatePlan(plan: Plan, h: Household): PlanResult {
   return {
     plan,
     scenarios: { light: scenario("light"), expected: scenario("expected"), bad: scenario("bad") },
-    suggestedAccount: account,
+    suggestedHsa: hsa,
   };
 }
 
@@ -212,14 +241,19 @@ export function recommend(plans: Plan[], h: Household): Recommendation | null {
     .map((p) => evaluatePlan(p, h))
     .sort((a, b) => a.scenarios.expected.total - b.scenarios.expected.total);
   const lowest = results[0];
+  const tiedWithLowest = results
+    .slice(1)
+    .filter((r) => r.scenarios.expected.total - lowest.scenarios.expected.total <= 1)
+    .map((r) => r.plan.id);
 
-  const badOop = lowest.scenarios.bad.outOfPocket;
+  const family = coverage !== "employee";
+  const oopMax = (family ? lowest.plan.outOfPocketMax.family : lowest.plan.outOfPocketMax.individual) ?? 0;
   const riskWarning =
-    badOop > h.emergencyFund
-      ? `In a bad year ${lowest.plan.name} could cost up to $${badOop.toLocaleString("en-US")} in medical bills — more than the $${h.emergencyFund.toLocaleString("en-US")} you could cover today. Consider saving toward that in your ${lowest.suggestedAccount.kind}.`
+    oopMax > h.emergencyFund
+      ? `Your entered reserve is $${h.emergencyFund.toLocaleString("en-US")}. ${lowest.plan.name}'s annual in-network out-of-pocket maximum is $${oopMax.toLocaleString("en-US")}, excluding premiums and uncovered care. Review how you would cover these costs.`
       : null;
 
-  return { coverage, results, incomplete, lowest, riskWarning };
+  return { coverage, results, incomplete, lowest, riskWarning, tiedWithLowest };
 }
 
 /** Difference vs. a baseline plan in a scenario (positive = cheaper than baseline). */
@@ -231,16 +265,18 @@ export function savingsVs(rec: Recommendation, baselineId: string, key: Scenario
 }
 
 /**
- * Total yearly cost for one adult as a function of total care spending S (all through the deductible).
- * Used for the "what if my care costs $X" chart — the simple model from the methodology:
- *   O(S) = min(M, min(S, D) + c × max(S − D, 0)),   C(S) = premiums + O(S) − employer HSA
+ * Simple model used by the what-if chart: all care S goes through the deductible and coinsurance.
+ *   O(S) = min(M, min(S, D) + c × max(S − D, 0))
+ *   cost before HSA = P + O(S);  net cost = P + O(S) − employer HSA
  */
-export function costCurve(plan: Plan, coverage: CoverageTier, spend: number): number {
+export function simpleCost(plan: Plan, coverage: CoverageTier, spend: number) {
   const family = coverage !== "employee";
   const D = (family ? plan.deductible.family : plan.deductible.individual) ?? 0;
   const M = (family ? plan.outOfPocketMax.family : plan.outOfPocketMax.individual) ?? Infinity;
-  const P = (plan.premiums[coverage] ?? 0) * 12;
-  const H = plan.hsaEligible ? (family ? plan.employerHsa.family : plan.employerHsa.individual) : 0;
+  const P = annualPremium(plan, coverage);
+  const H = employerHsaFor(plan, coverage);
   const O = Math.min(M, Math.min(spend, D) + plan.coinsurance * Math.max(spend - D, 0));
-  return P + O - H;
+  return { premiums: P, outOfPocket: O, employerHsa: H, beforeHsa: P + O, net: P + O - H };
 }
+
+export const costCurve = (plan: Plan, coverage: CoverageTier, spend: number) => simpleCost(plan, coverage, spend).net;

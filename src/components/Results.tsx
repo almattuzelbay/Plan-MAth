@@ -1,14 +1,16 @@
-import { AlertTriangle, ClipboardCheck, FileDown, PiggyBank, RotateCcw, Sparkles, TrendingDown } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, FileDown, PiggyBank, RotateCcw, Sparkles, TrendingDown, Wallet } from "lucide-react";
 import { useState } from "react";
-import { ACCOUNT_LIMITS, SERVICE_COST } from "../lib/assumptions";
-import { savingsVs } from "../lib/calc";
+import { HSA_LIMITS } from "../lib/assumptions";
+import { employerHsaFor, savingsVs, totalAllowed } from "../lib/calc";
 import { usd } from "../lib/format";
 import type { Household, Recommendation, ScenarioKey } from "../lib/types";
+import { CareCosts } from "./CareCosts";
 import { WhatIfChart } from "./WhatIfChart";
 
 interface Props {
   rec: Recommendation;
   household: Household;
+  onHousehold: (h: Household) => void;
   onEdit: () => void;
   onEditPlans: () => void;
   onRestart: () => void;
@@ -16,14 +18,15 @@ interface Props {
 }
 
 const SCENARIOS: { key: ScenarioKey; label: string; desc: string }[] = [
-  { key: "light", label: "Light year", desc: "about half the visits you expect, plus your regular medications" },
+  { key: "light", label: "Light year", desc: "about half the visits you expect, plus your regular medicines" },
   { key: "expected", label: "Expected year", desc: "exactly what you described, including anything planned" },
   { key: "bad", label: "Bad year", desc: "your expected year plus an unplanned hospital stay for one adult" },
 ];
 
-export function Results({ rec, household, onEdit, onEditPlans, onRestart, onUpgrade }: Props) {
+export function Results({ rec, household, onHousehold, onEdit, onEditPlans, onRestart, onUpgrade }: Props) {
   const [scenario, setScenario] = useState<ScenarioKey>("expected");
-  const { lowest, results, riskWarning, incomplete, coverage } = rec;
+  const { lowest, results, riskWarning, incomplete, coverage, tiedWithLowest } = rec;
+  const family = coverage !== "employee";
 
   const highest = results[results.length - 1];
   const defaultBaseline =
@@ -31,16 +34,29 @@ export function Results({ rec, household, onEdit, onEditPlans, onRestart, onUpgr
   const [baselineId, setBaselineId] = useState(defaultBaseline);
   const baseline = results.find((r) => r.plan.id === baselineId) ?? highest;
   const diff = savingsVs(rec, baseline.plan.id, scenario, lowest.plan.id) ?? 0;
+  const sorted = results.slice().sort((a, b) => a.scenarios[scenario].total - b.scenarios[scenario].total);
+  const min = sorted[0].scenarios[scenario].total;
   const max = Math.max(...results.map((r) => r.scenarios[scenario].total), 1);
   const scenarioInfo = SCENARIOS.find((s) => s.key === scenario)!;
+  const expectedAllowed = totalAllowed(household, "expected");
+  const tied = tiedWithLowest.length > 0;
+  const tiedNames = [lowest, ...results.filter((r) => tiedWithLowest.includes(r.plan.id))].map((r) => r.plan.name);
+  const anyHsa = results.some((r) => r.plan.hsaEligible);
+  const lowestHsa = employerHsaFor(lowest.plan, coverage);
 
   return (
     <section className="card results">
       <div className="verdict">
-        <p className="muted">Lowest estimated cost for your expected year</p>
-        <h2 className="big">{lowest.plan.name}</h2>
-        <p className="big-total">{usd(lowest.scenarios.expected.total)} <small>/ year, all-in</small></p>
-        {results.length > 1 && (
+        <p className="muted">{tied ? "Tie on estimated cost for your expected year" : "Lowest estimated cost for your expected year"}</p>
+        <h2 className="big">{tied ? tiedNames.join(" = ") : lowest.plan.name}</h2>
+        <p className="big-total">
+          {usd(lowest.scenarios.expected.total)} <small>/ year, net estimated cost{lowestHsa > 0 ? " after employer HSA contribution" : ""}</small>
+        </p>
+        <p className="small">
+          Based on {usd(expectedAllowed)} of allowed charges for covered in-network care.{" "}
+          <a className="link" href="#care-costs">View care cost assumptions</a>
+        </p>
+        {results.length > 1 && !tied && (
           <div className="compare-line">
             <TrendingDown size={18} />
             {baseline.plan.id === lowest.plan.id ? (
@@ -65,13 +81,13 @@ export function Results({ rec, household, onEdit, onEditPlans, onRestart, onUpgr
       {riskWarning && <p className="warn"><AlertTriangle size={18} /> {riskWarning}</p>}
       {incomplete.length > 0 && (
         <p className="warn">
-          <AlertTriangle size={18} /> Not compared because numbers are missing:{" "}
+          <AlertTriangle size={18} /> Not compared because terms are not provided:{" "}
           {incomplete.map((x) => `${x.plan.name} (${x.missing.join(", ")})`).join("; ")}.{" "}
-          <button className="link" onClick={onEditPlans}>Fix plans</button>
+          <button className="link" onClick={onEditPlans}>Add them</button>
         </p>
       )}
 
-      <div className="tabs" role="tablist">
+      <div className="tabs no-print" role="tablist">
         {SCENARIOS.map((s) => (
           <button key={s.key} role="tab" aria-selected={scenario === s.key} className={`tab ${scenario === s.key ? "tab-on" : ""}`} onClick={() => setScenario(s.key)}>
             {s.label}
@@ -81,13 +97,13 @@ export function Results({ rec, household, onEdit, onEditPlans, onRestart, onUpgr
       <p className="muted small">{scenarioInfo.label}: {scenarioInfo.desc}.</p>
 
       <div className="bars">
-        {results.map((r) => {
+        {sorted.map((r) => {
           const s = r.scenarios[scenario];
-          const isLowest = r.plan.id === results.slice().sort((a, b) => a.scenarios[scenario].total - b.scenarios[scenario].total)[0].plan.id;
+          const isLowest = s.total - min <= 1;
           return (
             <div key={r.plan.id} className="bar-row">
               <div className="bar-label">
-                {r.plan.name} {isLowest && <span className="badge">lowest</span>}
+                {r.plan.name} {isLowest && <span className="badge">{sorted.filter((x) => x.scenarios[scenario].total - min <= 1).length > 1 ? "tie" : "lowest"}</span>}
                 {r.plan.id === household.currentPlanId && <span className="badge badge-grey">current</span>}
               </div>
               <div className="bar-track">
@@ -109,58 +125,77 @@ export function Results({ rec, household, onEdit, onEditPlans, onRestart, onUpgr
           </thead>
           <tbody>
             <tr><td>Premiums from your paychecks</td>{results.map((r) => <td key={r.plan.id}>{usd(r.scenarios[scenario].premiums)}</td>)}</tr>
-            <tr><td>Your medical bills (deductible, copays, coinsurance)</td>{results.map((r) => <td key={r.plan.id}>{usd(r.scenarios[scenario].outOfPocket)}</td>)}</tr>
-            <tr><td>Employer money put in your HSA</td>{results.map((r) => <td key={r.plan.id}>{usd(-r.scenarios[scenario].employerHsa)}</td>)}</tr>
-            {household.includeTaxes && (
-              <tr><td>Tax savings (HSA / FSA)</td>{results.map((r) => <td key={r.plan.id}>{usd(-r.scenarios[scenario].taxSavings)}</td>)}</tr>
+            <tr><td>Your share of medical bills<small>deductible, copays, coinsurance</small></td>{results.map((r) => <td key={r.plan.id}>{usd(r.scenarios[scenario].outOfPocket)}</td>)}</tr>
+            <tr><td><b>Cost before employer HSA</b></td>{results.map((r) => <td key={r.plan.id}><b>{usd(r.scenarios[scenario].premiums + r.scenarios[scenario].outOfPocket)}</b></td>)}</tr>
+            {anyHsa && (
+              <tr><td>Employer HSA contribution<small>money added to your HSA — your medical bills stay the same</small></td>{results.map((r) => <td key={r.plan.id}>{usd(-r.scenarios[scenario].employerHsa)}</td>)}</tr>
             )}
-            <tr className="total"><td>Net yearly cost</td>{results.map((r) => <td key={r.plan.id}>{usd(r.scenarios[scenario].total)}</td>)}</tr>
+            {household.includeTaxes && (
+              <tr><td>Tax effect of your own HSA contribution</td>{results.map((r) => <td key={r.plan.id}>{usd(-r.scenarios[scenario].taxSavings)}</td>)}</tr>
+            )}
+            <tr className="total"><td>Net estimated annual cost{anyHsa ? " after employer HSA contribution" : ""}</td>{results.map((r) => <td key={r.plan.id}>{usd(r.scenarios[scenario].total)}</td>)}</tr>
           </tbody>
         </table>
       </div>
+      <p className="fineprint">Taxes {household.includeTaxes ? `included at ${Math.round(household.taxRate * 100)}% for HSA plans only` : "not included"}. Annual estimate under the assumptions below.</p>
+
+      <CareCosts
+        household={household}
+        scenario={scenario}
+        scenarioLabel={scenarioInfo.label}
+        onPrices={(prices) => onHousehold({ ...household, prices })}
+      />
 
       <h3 className="section-title">What if your care costs more or less than you think?</h3>
-      <WhatIfChart plans={results.map((r) => r.plan)} coverage={coverage} />
+      <WhatIfChart key={Math.round(expectedAllowed)} plans={results.map((r) => r.plan)} coverage={coverage} expectedSpend={expectedAllowed} />
 
       <div className="grid2">
-        <div className="mini">
-          <h3><PiggyBank size={18} /> Set aside in your {lowest.suggestedAccount.kind}</h3>
-          <p className="big-num">{usd(lowest.suggestedAccount.amount)} / year</p>
-          <p className="muted small">
-            {lowest.suggestedAccount.kind === "HSA"
-              ? `Covers your expected bills after the employer's contribution. HSA money never expires. 2027 limit: ${usd(coverage === "employee" ? ACCOUNT_LIMITS.hsa.individual : ACCOUNT_LIMITS.hsa.family)} including employer money.`
-              : "FSA money is use-it-or-lose-it, so this is a bit below your expected bills."}
-          </p>
-        </div>
+        {lowest.suggestedHsa !== null ? (
+          <div className="mini">
+            <h3><PiggyBank size={18} /> HSA for {lowest.plan.name}</h3>
+            <p className="big-num">{usd(lowest.suggestedHsa)} / year</p>
+            <p className="muted small">
+              Your expected medical bills ({usd(lowest.scenarios.expected.outOfPocket)}) minus the employer's {usd(lowestHsa)}. A possible
+              contribution target, not advice. 2027 HSA limit: {usd(family ? HSA_LIMITS.family : HSA_LIMITS.individual)} including employer money.
+            </p>
+          </div>
+        ) : (
+          <div className="mini">
+            <h3><Wallet size={18} /> Health FSA</h3>
+            <p className="small">
+              Check whether your employer offers a health FSA. Review eligible expenses and plan rules before choosing a contribution.
+            </p>
+          </div>
+        )}
         <div className="mini">
           <h3><ClipboardCheck size={18} /> Check before you enroll</h3>
           <ul className="small checklist">
             <li>Are your doctors in-network for {lowest.plan.name}?</li>
-            <li>Are your medications on its drug list (formulary), and at which tier?</li>
-            <li>Is the family deductible embedded or aggregate?</li>
-            <li>When does the employer HSA money arrive, and are there conditions?</li>
+            <li>Are your medicines on its drug list (formulary), and at which tier?</li>
+            {family && <li>Is the family deductible embedded or aggregate? (you entered: {lowest.plan.embeddedDeductible ? "embedded" : "aggregate"})</li>}
+            {lowest.plan.hsaEligible && (
+              <li>
+                Employer HSA money: {usd(lowestHsa)} a year per your inputs — confirm when it's deposited and whether there are conditions.
+              </li>
+            )}
           </ul>
         </div>
       </div>
 
-      <details className="assumptions">
+      <details className="assumptions" open>
         <summary>Assumptions & limits — read before deciding</summary>
         <ul className="small">
-          <li>An estimate under your inputs, not a prediction of your health and not a guarantee of savings.</li>
-          <li>
-            Typical in-network prices: doctor visit {usd(SERVICE_COST.primaryVisit)}, specialist {usd(SERVICE_COST.specialistVisit)}, therapy session{" "}
-            {usd(SERVICE_COST.therapySession)}, urgent care {usd(SERVICE_COST.urgentCareVisit)}, ER {usd(SERVICE_COST.erVisit)}, lab/scan{" "}
-            {usd(SERVICE_COST.labOrImaging)}, brand drug {usd(SERVICE_COST.brandRxMonth)}/month, birth {usd(SERVICE_COST.baby)}, surgery{" "}
-            {usd(SERVICE_COST.surgery)}, hospital stay {usd(SERVICE_COST.hospitalization)}. Real prices differ by plan and city.
-          </li>
-          <li>Copays are treated as not counting toward the deductible; ER copays are treated as flat.</li>
+          <li>An annual estimate under your inputs — not a prediction of your health and not a guarantee of savings.</li>
+          <li>Prices are illustrative allowed amounts for covered in-network care (see the table above); real negotiated prices differ by plan and city.</li>
+          <li>Copays are treated as not counting toward the deductible; an empty copay means deductible, then coinsurance.</li>
           <li>Separate drug deductibles, out-of-network care, tiered networks and mid-year enrollment are not modeled yet.</li>
-          <li>Premiums are counted for a full 12 months. Taxes are {household.includeTaxes ? "included at the rate you chose" : "not included"}.</li>
+          <li>The out-of-pocket maximum covers in-network covered care only; premiums and uncovered care are on top.</li>
+          <li>Premiums are counted for a full year from the amount and number of deductions you entered.</li>
           <li>Doctor networks and drug lists can matter more than price — check them with the insurer.</li>
         </ul>
       </details>
 
-      <div className="upsell">
+      <div className="upsell no-print">
         <Sparkles size={26} />
         <div>
           <h3>Decision Pack — planned at $19, free during beta</h3>

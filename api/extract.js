@@ -45,12 +45,13 @@ Return ONLY JSON in exactly this shape:
 }
 Rules:
 - IN-NETWORK values only. Numbers only, no $ or commas.
-- premiums = the EMPLOYEE's share. premiumPeriodsPerYear = how often the document states them: 12 monthly, 24 semi-monthly, 26 bi-weekly, 52 weekly, 1 annual. If both monthly and other are shown, use monthly with 12.
+- premiums = the EMPLOYEE's share, exactly as printed (do not convert). premiumPeriodsPerYear = how often they are quoted: 12 monthly, 24 semi-monthly, 26 bi-weekly, 52 weekly, 1 annual. If several frequencies are shown, use the per-paycheck amount and its frequency.
 - coinsurance = the MEMBER's share after the deductible as a fraction (plan pays 80% -> 0.2). null if not stated.
 - copays: null when the service is "subject to deductible", uses coinsurance, or is not stated. For "$250 copay then deductible" use 250.
 - genericRx/brandRx/specialtyRx = retail 30/31-day tier 1 / tier 2 / specialty copays.
-- employerHsa: employer HSA contribution per year (also called seed money / HSA funding). null if none.
+- employerHsa: employer HSA contribution per year (also called seed money / HSA funding). 0 only if the document says there is none; null if not stated.
 - embeddedDeductible: true if the document says embedded, false if aggregate/non-embedded, null if not stated.
+- Family values (premiums, deductible, out-of-pocket max) only if the document lists them; otherwise null.
 - Use null for anything you cannot find. NEVER invent numbers or plans. Keep sources under 15 words each.`;
 
 class GeminiError extends Error {

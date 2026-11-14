@@ -18,21 +18,26 @@ export interface Plan {
   id: string;
   name: string;
   type: PlanType;
-  /** Employee contribution per month by coverage tier. null = not found / not offered. */
+  /**
+   * Employee contribution per pay period, exactly as the document states it, by coverage tier.
+   * null = not provided. Annual premium = amount × premiumPeriods (no rounding through monthly values).
+   */
   premiums: Record<CoverageTier, number | null>;
+  /** How many deductions per year the premiums above are quoted for: 12, 24, 26, 52 or 1 (annual). */
+  premiumPeriods: number;
   deductible: { individual: number | null; family: number | null };
   outOfPocketMax: { individual: number | null; family: number | null };
   /**
    * Embedded: each person has their own deductible inside the family one.
    * Aggregate: the whole family deductible must be met first (common on HDHPs).
    */
-  embeddedDeductible: boolean;
+  embeddedDeductible: boolean | null;
   /** Your share after the deductible, 0–1. */
   coinsurance: number;
   copays: Copays;
   hsaEligible: boolean;
-  /** Employer contribution to the HSA per year. */
-  employerHsa: { individual: number; family: number };
+  /** Employer contribution to the HSA per year. null = not provided (0 only when the document says so). */
+  employerHsa: { individual: number | null; family: number | null };
   /** Short quotes from the document that back up key numbers (filled by AI import). */
   sources?: Partial<Record<"premium" | "deductible" | "outOfPocketMax" | "copays" | "employerHsa", string>>;
 }
@@ -46,6 +51,7 @@ export interface Member {
   profiles: CareProfile[];
   primaryVisits: number;
   specialistVisits: number;
+  therapySessions: number;
   urgentCareVisits: number;
   erVisits: number;
   labsImaging: number;
@@ -53,11 +59,29 @@ export interface Member {
   brandRx: number;
 }
 
+export type PriceKey =
+  | "primaryVisit"
+  | "specialistVisit"
+  | "therapySession"
+  | "urgentCareVisit"
+  | "erVisit"
+  | "labOrImaging"
+  | "genericRxMonth"
+  | "brandRxMonth"
+  | "specialtyRxMonth"
+  | "baby"
+  | "surgery"
+  | "hospitalization";
+
+export type Prices = Record<PriceKey, number>;
+
 export interface Household {
   members: Member[];
+  /** Illustrative allowed amounts used for pricing care; editable by the user. */
+  prices: Prices;
   /** How much the household could pay for a surprise medical bill today. */
   emergencyFund: number;
-  /** Include tax savings from HSA/FSA contributions. Off by default: it depends on personal tax situation. */
+  /** Include tax savings from HSA contributions. Off by default: it depends on personal tax situation. */
   includeTaxes: boolean;
   /** Combined marginal tax rate used when includeTaxes is on. */
   taxRate: number;
@@ -80,8 +104,8 @@ export interface ScenarioResult {
 export interface PlanResult {
   plan: Plan;
   scenarios: Record<ScenarioKey, ScenarioResult>;
-  /** Suggested pre-tax account contribution (HSA for HSA-eligible plans, FSA otherwise). */
-  suggestedAccount: { kind: "HSA" | "FSA"; amount: number };
+  /** HSA contribution that would cover expected bills after employer money. null for plans without an HSA. */
+  suggestedHsa: number | null;
 }
 
 export interface Recommendation {
@@ -90,6 +114,8 @@ export interface Recommendation {
   /** Plans left out because a required number is missing. */
   incomplete: { plan: Plan; missing: string[] }[];
   lowest: PlanResult;
-  /** Set when the lowest-cost plan's bad-year out-of-pocket exceeds the emergency fund. */
+  /** Set when the lowest-cost plan's out-of-pocket maximum exceeds the reserve the user entered. */
   riskWarning: string | null;
+  /** Plans whose expected cost is within $1 of the lowest (a tie, not a unique winner). */
+  tiedWithLowest: string[];
 }

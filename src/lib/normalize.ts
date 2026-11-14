@@ -12,10 +12,12 @@ const toNumber = (v: unknown): number | null => {
 const PLAN_TYPES: PlanType[] = ["PPO", "HMO", "EPO", "POS", "HDHP", "Other"];
 const TIERS: CoverageTier[] = ["employee", "employeeSpouse", "employeeChildren", "family"];
 const COPAYS: (keyof Copays)[] = ["primary", "specialist", "urgentCare", "er", "genericRx", "brandRx", "specialtyRx"];
+export const PREMIUM_PERIODS = [12, 24, 26, 52, 1] as const;
 
 /**
  * Turns whatever the AI extracted into a safe Plan object.
- * Missing numbers stay null (never silently 0) so the user must fill them in before comparing.
+ * Unknown values stay null ("Not provided") — never silently 0 or a default that looks like a fact.
+ * Premiums are kept exactly as stated (amount per period + number of periods) to avoid rounding drift.
  */
 export function normalizePlan(raw: any, index: number): Plan {
   const type: PlanType = PLAN_TYPES.includes(raw?.type) ? raw.type : "Other";
@@ -23,13 +25,10 @@ export function normalizePlan(raw: any, index: number): Plan {
   if (coinsurance > 1) coinsurance /= 100; // "20" -> 0.2
   coinsurance = Math.min(1, Math.max(0, coinsurance));
 
-  // Store premiums per month; convert from per-paycheck or annual amounts.
-  const periods = toNumber(raw?.premiumPeriodsPerYear) ?? 12;
+  const periods = toNumber(raw?.premiumPeriodsPerYear);
+  const premiumPeriods = periods !== null && (PREMIUM_PERIODS as readonly number[]).includes(periods) ? periods : 12;
   const premiums = {} as Plan["premiums"];
-  for (const t of TIERS) {
-    const v = toNumber(raw?.premiums?.[t]);
-    premiums[t] = v === null ? null : Math.round(((v * periods) / 12) * 100) / 100;
-  }
+  for (const t of TIERS) premiums[t] = toNumber(raw?.premiums?.[t]);
 
   const copays = {} as Copays;
   for (const c of COPAYS) copays[c] = type === "HDHP" ? null : toNumber(raw?.copays?.[c]);
@@ -41,20 +40,20 @@ export function normalizePlan(raw: any, index: number): Plan {
     id: `plan-${Date.now()}-${index}`,
     name: String(raw?.name || `Plan ${index + 1}`).slice(0, 60),
     type,
+    premiumPeriods,
     premiums,
     deductible: { individual: toNumber(raw?.deductible?.individual), family: toNumber(raw?.deductible?.family) },
     outOfPocketMax: {
       individual: toNumber(raw?.outOfPocketMax?.individual),
       family: toNumber(raw?.outOfPocketMax?.family),
     },
-    embeddedDeductible: typeof raw?.embeddedDeductible === "boolean" ? raw.embeddedDeductible : type !== "HDHP",
+    embeddedDeductible: typeof raw?.embeddedDeductible === "boolean" ? raw.embeddedDeductible : null,
     coinsurance,
     copays,
     hsaEligible,
-    employerHsa: {
-      individual: toNumber(raw?.employerHsa?.individual) ?? 0,
-      family: toNumber(raw?.employerHsa?.family) ?? 0,
-    },
+    employerHsa: hsaEligible
+      ? { individual: toNumber(raw?.employerHsa?.individual), family: toNumber(raw?.employerHsa?.family) }
+      : { individual: 0, family: 0 },
     sources,
   };
 }

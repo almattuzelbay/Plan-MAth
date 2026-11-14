@@ -22,7 +22,7 @@ interface Session {
   household: Household;
 }
 
-const STORAGE_KEY = "planmath-session";
+const STORAGE_KEY = "planmath-session-v3";
 const STEPS: { key: Step; label: string }[] = [
   { key: "plans", label: "Plans" },
   { key: "household", label: "Household" },
@@ -33,7 +33,11 @@ const STEPS: { key: Step; label: string }[] = [
 function loadSession(): Session | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Session) : null;
+    if (!raw) return null;
+    const s = JSON.parse(raw) as Session;
+    // Ignore sessions saved by an older version of the app.
+    if (!s.household?.prices || s.plans.some((p) => typeof p.premiumPeriods !== "number")) return null;
+    return s;
   } catch {
     return null;
   }
@@ -146,6 +150,7 @@ export default function App() {
           <Results
             rec={rec}
             household={s.household}
+            onHousehold={(household) => patch({ household })}
             onEdit={() => patch({ step: "household" })}
             onEditPlans={() => patch({ step: "plans" })}
             onRestart={restart}
@@ -156,7 +161,9 @@ export default function App() {
           <section className="card center">
             <h2>We need a few more numbers</h2>
             <p className="muted">
-              None of the plans has a premium for your coverage level, a deductible and an out-of-pocket max. Add them to compare.
+              None of the plans has all the terms needed for your coverage level yet — for example the premium, deductible,
+              out-of-pocket max or (with a spouse or children) the family terms. We don't fill unknown values with $0, so
+              add them from your benefits guide to compare.
             </p>
             <button className="btn btn-primary" onClick={() => patch({ step: "plans" })}>Back to plans</button>
           </section>

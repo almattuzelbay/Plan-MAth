@@ -1,6 +1,6 @@
 import { Info, Minus, Plus, UserPlus, X } from "lucide-react";
-import { PROFILE_EFFECTS } from "../lib/assumptions";
-import { coverageFor } from "../lib/calc";
+import { DEFAULT_THERAPY_SESSIONS, PROFILE_EFFECTS } from "../lib/assumptions";
+import { coverageFor, missingFor } from "../lib/calc";
 import { newMember } from "../lib/lifeEvents";
 import type { CareProfile, Household, Member, Plan } from "../lib/types";
 import { Avatar } from "./Illustrations";
@@ -22,16 +22,17 @@ const COVERAGE_LABEL = {
 
 const ROLE_LABEL = { you: "You", spouse: "Spouse / partner", child: "Child" };
 
-type CountKey = "primaryVisits" | "specialistVisits" | "urgentCareVisits" | "erVisits" | "labsImaging" | "genericRx" | "brandRx";
+type CountKey = "primaryVisits" | "specialistVisits" | "therapySessions" | "urgentCareVisits" | "erVisits" | "labsImaging" | "genericRx" | "brandRx";
 
 const COUNTS: { key: CountKey; label: string; unit: string }[] = [
   { key: "primaryVisits", label: "Doctor visits (sick or follow-up)", unit: "per year" },
   { key: "specialistVisits", label: "Specialist visits", unit: "per year" },
+  { key: "therapySessions", label: "Therapy / counseling sessions", unit: "per year" },
   { key: "urgentCareVisits", label: "Urgent care visits", unit: "per year" },
   { key: "erVisits", label: "Emergency room visits", unit: "per year" },
   { key: "labsImaging", label: "Lab tests, X-rays or scans", unit: "per year" },
-  { key: "genericRx", label: "Generic medications", unit: "taken every month" },
-  { key: "brandRx", label: "Brand-name medications", unit: "taken every month" },
+  { key: "genericRx", label: "Generic medicines taken regularly", unit: "medicines (12 fills each a year)" },
+  { key: "brandRx", label: "Brand-name medicines taken regularly", unit: "medicines (12 fills each a year)" },
 ];
 
 function Stepper({ value, onChange, label }: { value: number; onChange: (n: number) => void; label: string }) {
@@ -54,8 +55,11 @@ export function HouseholdForm({ household: h, plans, onChange, onBack, onNext }:
 
   const toggleProfile = (i: number, p: CareProfile) => {
     const m = h.members[i];
-    const profiles = m.profiles.includes(p) ? m.profiles.filter((x) => x !== p) : [...m.profiles, p];
-    setMember(i, { ...m, profiles });
+    const on = !m.profiles.includes(p);
+    const profiles = on ? [...m.profiles, p] : m.profiles.filter((x) => x !== p);
+    // Therapy is a visible, editable count (counted once), not a hidden add-on.
+    const therapySessions = p === "therapy" ? (on ? Math.max(m.therapySessions, DEFAULT_THERAPY_SESSIONS) : 0) : m.therapySessions;
+    setMember(i, { ...m, profiles, therapySessions });
   };
 
   return (
@@ -67,6 +71,16 @@ export function HouseholdForm({ household: h, plans, onChange, onBack, onNext }:
       </p>
 
       <div className="coverage-pill">Coverage level: <b>{COVERAGE_LABEL[coverage]}</b></div>
+      {plans.some((p) => missingFor(p, coverage).length > 0) && (
+        <p className="warn">
+          For "{COVERAGE_LABEL[coverage]}" these plans still need numbers:{" "}
+          {plans
+            .filter((p) => missingFor(p, coverage).length > 0)
+            .map((p) => `${p.name} (${missingFor(p, coverage).join(", ")})`)
+            .join("; ")}
+          . They'll be left out until you add them on the Plans step.
+        </p>
+      )}
 
       <div className="members">
         {h.members.map((m, i) => {
@@ -104,7 +118,7 @@ export function HouseholdForm({ household: h, plans, onChange, onBack, onNext }:
               )}
 
               <details className="usage" open={i === 0}>
-                <summary>Usual care {m.profiles.length ? "(on top of the above)" : ""}</summary>
+                <summary>Usual care {m.profiles.length ? "(added on top of the boxes above)" : ""}</summary>
                 <div className="usage-grid">
                   {COUNTS.map((c) => (
                     <div className="usage-row" key={c.key}>

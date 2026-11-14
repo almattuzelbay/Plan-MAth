@@ -1,3 +1,4 @@
+import { SERVICE_COST } from "./assumptions";
 import type { Household, LifeEvent, Member } from "./types";
 
 export const LIFE_EVENTS: { key: LifeEvent; label: string; tip: string }[] = [
@@ -33,6 +34,7 @@ export function newMember(role: Member["role"]): Member {
     profiles: [],
     primaryVisits: child ? 2 : 1,
     specialistVisits: 0,
+    therapySessions: 0,
     urgentCareVisits: 0,
     erVisits: 0,
     labsImaging: child ? 0 : 1,
@@ -44,6 +46,7 @@ export function newMember(role: Member["role"]): Member {
 export function householdFor(event: LifeEvent): Household {
   const base: Household = {
     members: [newMember("you")],
+    prices: { ...SERVICE_COST },
     emergencyFund: 3000,
     includeTaxes: false,
     taxRate: 0.3,
