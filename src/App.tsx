@@ -1,149 +1,172 @@
+import { Check } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { HouseholdForm } from "./components/HouseholdForm";
 import { Landing } from "./components/Landing";
 import { PlanEditor } from "./components/PlanEditor";
 import { Pricing } from "./components/Pricing";
 import { Results } from "./components/Results";
-import { Survey } from "./components/Survey";
 import { DEMO_COMPANY, DEMO_PLANS } from "./data/demo";
 import { recommend } from "./lib/calc";
+import { importDocument } from "./lib/importDoc";
 import { householdFor } from "./lib/lifeEvents";
-import { normalizePlan } from "./lib/normalize";
-import { decodeState, shareUrl } from "./lib/share";
 import type { Household, LifeEvent, Plan } from "./lib/types";
 
-type Step = "landing" | "plans" | "survey" | "results";
+type Step = "landing" | "plans" | "household" | "results";
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-    reader.onerror = () => reject(new Error("Could not read the file"));
-    reader.readAsDataURL(file);
-  });
+interface Session {
+  step: Step;
+  lifeEvent: LifeEvent;
+  company: string;
+  plans: Plan[];
+  notes: string;
+  household: Household;
 }
 
-export default function App() {
-  const [step, setStep] = useState<Step>("landing");
-  const [lifeEvent, setLifeEvent] = useState<LifeEvent>("openEnrollment");
-  const [company, setCompany] = useState(DEMO_COMPANY);
-  const [plans, setPlans] = useState<Plan[]>([]);
-  const [notes, setNotes] = useState("");
-  const [household, setHousehold] = useState<Household>(householdFor("openEnrollment"));
-  const [showPricing, setShowPricing] = useState(false);
+const STORAGE_KEY = "planmath-session";
+const STEPS: { key: Step; label: string }[] = [
+  { key: "plans", label: "Plans" },
+  { key: "household", label: "Household" },
+  { key: "results", label: "Comparison" },
+];
 
-  // Open a shared result straight from the link.
+/** Answers live only in this browser tab (sessionStorage) — nothing personal goes to a server or a URL. */
+function loadSession(): Session | null {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Session) : null;
+  } catch {
+    return null;
+  }
+}
+
+const fresh = (): Session => ({
+  step: "landing",
+  lifeEvent: "openEnrollment",
+  company: DEMO_COMPANY,
+  plans: [],
+  notes: "",
+  household: householdFor("openEnrollment"),
+});
+
+export default function App() {
+  const [s, setS] = useState<Session>(() => loadSession() ?? fresh());
+  const [showPricing, setShowPricing] = useState(false);
+  const patch = (p: Partial<Session>) => setS((prev) => ({ ...prev, ...p }));
+
   useEffect(() => {
-    const shared = decodeState(window.location.hash);
-    if (shared) {
-      setCompany(shared.company);
-      setPlans(shared.plans);
-      setHousehold(shared.household);
-      setStep("results");
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    } catch {
+      /* storage can be unavailable (private mode); the app still works */
     }
-  }, []);
+  }, [s]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [step]);
+  }, [s.step]);
 
   const rec = useMemo(
-    () => (step === "results" && plans.length ? recommend(plans, household) : null),
-    [step, plans, household],
+    () => (s.step === "results" ? recommend(s.plans, s.household) : null),
+    [s.step, s.plans, s.household],
   );
 
-  function chooseLifeEvent(e: LifeEvent) {
-    setLifeEvent(e);
-    setHousehold(householdFor(e));
-  }
-
-  function startDemo() {
-    setCompany(DEMO_COMPANY);
-    setPlans(DEMO_PLANS);
-    setNotes("");
-    setStep("plans");
-  }
-
-  function startManual() {
-    setCompany("My employer");
-    setPlans([]);
-    setNotes("Add each medical plan from your benefits guide.");
-    setStep("plans");
-  }
-
-  async function upload(file: File) {
-    const data = await fileToBase64(file);
-    const res = await fetch("/api/extract", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mimeType: file.type, data }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || "Could not read this document.");
-    setCompany(file.name.replace(/\.[^.]+$/, ""));
-    setPlans((body.plans as unknown[]).map(normalizePlan));
-    setNotes(body.notes || "");
-    setStep("plans");
-  }
+  const stepIndex = STEPS.findIndex((x) => x.key === s.step);
 
   function restart() {
-    history.replaceState(null, "", window.location.pathname);
-    setStep("landing");
+    try {
+      sessionStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    setS(fresh());
   }
 
   return (
     <div className="app">
-      <header className="top">
-        <button className="logo" onClick={restart}>
+      <header className="top no-print">
+        <button className="logo" onClick={restart} aria-label="PlanMath home">
           <span className="logo-mark">$</span> PlanMath
         </button>
-        <button className="link" onClick={() => setShowPricing(true)}>
-          Pricing
-        </button>
+        <nav className="top-links">
+          <span className="beta">Beta</span>
+          <button className="link" onClick={() => setShowPricing(true)}>Pricing</button>
+        </nav>
       </header>
 
+      {stepIndex >= 0 && (
+        <ol className="progress no-print" aria-label="Progress">
+          {STEPS.map((st, i) => (
+            <li key={st.key} className={i < stepIndex ? "done" : i === stepIndex ? "current" : ""}>
+              <button
+                disabled={i > stepIndex}
+                onClick={() => patch({ step: st.key })}
+                aria-current={i === stepIndex ? "step" : undefined}
+              >
+                <span className="dot">{i < stepIndex ? <Check size={14} /> : i + 1}</span>
+                {st.label}
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+
       <main>
-        {step === "landing" && (
+        {s.step === "landing" && (
           <Landing
-            lifeEvent={lifeEvent}
-            onLifeEvent={chooseLifeEvent}
-            onDemo={startDemo}
-            onManual={startManual}
-            onUpload={upload}
+            lifeEvent={s.lifeEvent}
+            onLifeEvent={(e) => patch({ lifeEvent: e, household: householdFor(e) })}
+            onDemo={() => patch({ company: DEMO_COMPANY, plans: DEMO_PLANS, notes: "", step: "plans" })}
+            onManual={() => patch({ company: "My employer", plans: [], notes: "", step: "plans" })}
+            onUpload={async (file) => {
+              const { plans, notes } = await importDocument(file);
+              patch({ company: file.name.replace(/\.[^.]+$/, ""), plans, notes, step: "plans" });
+            }}
           />
         )}
-        {step === "plans" && (
+        {s.step === "plans" && (
           <PlanEditor
-            company={company}
-            plans={plans}
-            notes={notes}
-            onChange={setPlans}
-            onBack={() => setStep("landing")}
-            onNext={() => setStep("survey")}
+            company={s.company}
+            plans={s.plans}
+            notes={s.notes}
+            onChange={(plans) => patch({ plans })}
+            onBack={() => patch({ step: "landing" })}
+            onNext={() => patch({ step: "household" })}
           />
         )}
-        {step === "survey" && (
-          <Survey
-            household={household}
-            onChange={setHousehold}
-            onBack={() => setStep("plans")}
-            onNext={() => setStep("results")}
+        {s.step === "household" && (
+          <HouseholdForm
+            household={s.household}
+            plans={s.plans}
+            onChange={(household) => patch({ household })}
+            onBack={() => patch({ step: "plans" })}
+            onNext={() => patch({ step: "results" })}
           />
         )}
-        {step === "results" && rec && (
+        {s.step === "results" && rec && (
           <Results
             rec={rec}
-            shareLink={shareUrl({ company, plans, household })}
-            onEdit={() => setStep("survey")}
+            household={s.household}
+            onEdit={() => patch({ step: "household" })}
+            onEditPlans={() => patch({ step: "plans" })}
             onRestart={restart}
             onUpgrade={() => setShowPricing(true)}
           />
         )}
+        {s.step === "results" && !rec && (
+          <section className="card center">
+            <h2>We need a few more numbers</h2>
+            <p className="muted">
+              None of the plans has a premium for your coverage level, a deductible and an out-of-pocket max. Add them to compare.
+            </p>
+            <button className="btn btn-primary" onClick={() => patch({ step: "plans" })}>Back to plans</button>
+          </section>
+        )}
       </main>
 
       <footer className="foot">
-        PlanMath is an educational calculator, not insurance, medical, tax or financial advice. Costs
-        are estimates based on typical prices; confirm plan details with your HR team. We don't sell
-        insurance and don't store your documents.
+        PlanMath is an educational calculator, not insurance, medical, tax or financial advice. Estimates depend on your
+        inputs and typical prices; confirm plan details, networks and drug lists with your HR team or insurer. We don't sell
+        insurance and don't store your documents or answers.
       </footer>
 
       {showPricing && <Pricing onClose={() => setShowPricing(false)} />}

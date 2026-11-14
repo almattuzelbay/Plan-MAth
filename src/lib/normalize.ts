@@ -1,70 +1,64 @@
-import type { Plan, PlanType } from "./types";
+import type { Copays, CoverageTier, Plan, PlanType } from "./types";
 
-const num = (v: unknown, fallback = 0): number => {
+const toNumber = (v: unknown): number | null => {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "string") {
     const n = Number(v.replace(/[$,%\s]/g, ""));
-    if (Number.isFinite(n)) return n;
+    if (v.trim() !== "" && Number.isFinite(n)) return n;
   }
-  return fallback;
+  return null;
 };
 
-const numOrNull = (v: unknown): number | null =>
-  v === null || v === undefined || v === "" ? null : num(v, 0);
-
-const PLAN_TYPES: PlanType[] = ["PPO", "HMO", "EPO", "HDHP", "Other"];
+const PLAN_TYPES: PlanType[] = ["PPO", "HMO", "EPO", "POS", "HDHP", "Other"];
+const TIERS: CoverageTier[] = ["employee", "employeeSpouse", "employeeChildren", "family"];
+const COPAYS: (keyof Copays)[] = ["primary", "specialist", "urgentCare", "er", "genericRx", "brandRx", "specialtyRx"];
 
 /**
  * Turns whatever the AI extracted into a safe Plan object.
- * Missing values become 0/null so the user can fix them in the table before calculating.
+ * Missing numbers stay null (never silently 0) so the user must fill them in before comparing.
  */
 export function normalizePlan(raw: any, index: number): Plan {
-  const type = PLAN_TYPES.includes(raw?.type) ? raw.type : "Other";
-  let coinsurance = num(raw?.coinsurance, 0.2);
-  if (coinsurance > 1) coinsurance = coinsurance / 100; // "20" -> 0.2
+  const type: PlanType = PLAN_TYPES.includes(raw?.type) ? raw.type : "Other";
+  let coinsurance = toNumber(raw?.coinsurance) ?? 0.2;
+  if (coinsurance > 1) coinsurance /= 100; // "20" -> 0.2
+  coinsurance = Math.min(1, Math.max(0, coinsurance));
 
-  // Premiums are stored per month. The AI is asked to convert, but we also handle
-  // documents that state a per-paycheck amount with a known pay frequency.
-  const perYear = num(raw?.premiumPeriodsPerYear, 12);
-  const scale = (v: unknown) => Math.round((num(v) * perYear) / 12);
+  // Store premiums per month; convert from per-paycheck or annual amounts.
+  const periods = toNumber(raw?.premiumPeriodsPerYear) ?? 12;
+  const premiums = {} as Plan["premiums"];
+  for (const t of TIERS) {
+    const v = toNumber(raw?.premiums?.[t]);
+    premiums[t] = v === null ? null : Math.round(((v * periods) / 12) * 100) / 100;
+  }
+
+  const copays = {} as Copays;
+  for (const c of COPAYS) copays[c] = type === "HDHP" ? null : toNumber(raw?.copays?.[c]);
+
+  const hsaEligible = Boolean(raw?.hsaEligible) || type === "HDHP";
+  const sources = typeof raw?.sources === "object" && raw.sources ? raw.sources : undefined;
 
   return {
-    id: `plan-${index}`,
+    id: `plan-${Date.now()}-${index}`,
     name: String(raw?.name || `Plan ${index + 1}`).slice(0, 60),
     type,
-    premiums: {
-      employee: scale(raw?.premiums?.employee),
-      employeeSpouse: scale(raw?.premiums?.employeeSpouse),
-      employeeChildren: scale(raw?.premiums?.employeeChildren),
-      family: scale(raw?.premiums?.family),
-    },
-    deductible: {
-      individual: num(raw?.deductible?.individual),
-      family: num(raw?.deductible?.family, num(raw?.deductible?.individual) * 2),
-    },
+    premiums,
+    deductible: { individual: toNumber(raw?.deductible?.individual), family: toNumber(raw?.deductible?.family) },
     outOfPocketMax: {
-      individual: num(raw?.outOfPocketMax?.individual),
-      family: num(raw?.outOfPocketMax?.family, num(raw?.outOfPocketMax?.individual) * 2),
+      individual: toNumber(raw?.outOfPocketMax?.individual),
+      family: toNumber(raw?.outOfPocketMax?.family),
     },
+    embeddedDeductible: typeof raw?.embeddedDeductible === "boolean" ? raw.embeddedDeductible : type !== "HDHP",
     coinsurance,
-    copays: {
-      primary: numOrNull(raw?.copays?.primary),
-      specialist: numOrNull(raw?.copays?.specialist),
-      genericRx: numOrNull(raw?.copays?.genericRx),
-    },
-    hsaEligible: Boolean(raw?.hsaEligible) || type === "HDHP",
+    copays,
+    hsaEligible,
     employerHsa: {
-      individual: num(raw?.employerHsa?.individual),
-      family: num(raw?.employerHsa?.family),
+      individual: toNumber(raw?.employerHsa?.individual) ?? 0,
+      family: toNumber(raw?.employerHsa?.family) ?? 0,
     },
+    sources,
   };
 }
 
-/** List of fields that look missing, so the UI can highlight them. */
-export function missingFields(p: Plan): string[] {
-  const missing: string[] = [];
-  if (!p.premiums.employee) missing.push("premium");
-  if (!p.deductible.individual && p.type === "HDHP") missing.push("deductible");
-  if (!p.outOfPocketMax.individual) missing.push("out-of-pocket max");
-  return missing;
+export function blankPlan(index: number): Plan {
+  return normalizePlan({ name: `Plan ${index + 1}`, type: "PPO" }, index);
 }

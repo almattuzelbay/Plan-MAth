@@ -1,46 +1,59 @@
-import type { Household, LifeEvent } from "./types";
+import type { Household, LifeEvent, Member } from "./types";
 
 export const LIFE_EVENTS: { key: LifeEvent; label: string; tip: string }[] = [
   {
     key: "openEnrollment",
     label: "Open enrollment",
-    tip: "Open enrollment is your once-a-year chance to switch plans. Staying in last year's plan by default is one of the most expensive habits in benefits.",
+    tip: "Open enrollment is your once-a-year chance to switch plans. Staying in last year's plan by default can quietly cost you money.",
   },
   {
     key: "newJob",
     label: "Starting a new job",
-    tip: "New hires usually have about 30 days to enroll. If you miss it, you may wait until next open enrollment.",
+    tip: "New hires usually have a short window (often about 30 days) to enroll. Check the exact deadline with HR.",
   },
   {
     key: "turning26",
     label: "Turning 26",
-    tip: "At 26 you age off a parent's plan. Losing that coverage typically opens a special enrollment window (often 30 days for employer plans) — don't let it pass.",
+    tip: "At 26 you age off a parent's plan. Losing that coverage usually opens a special enrollment window — check the deadline with HR.",
   },
   {
     key: "baby",
     label: "Having a baby",
-    tip: "A birth usually lets you change plans mid-year (often within 30 days). Planned big expenses can flip which plan is cheapest.",
+    tip: "A planned birth can flip which plan is cheapest. A birth also usually lets you change plans mid-year — check the deadline with HR.",
   },
 ];
 
-export const DEFAULT_HOUSEHOLD: Household = {
-  coverage: "employee",
-  primaryVisits: 3,
-  specialistVisits: 1,
-  monthlyPrescriptions: 0,
-  bigEvent: "none",
-  emergencyFund: 3000,
-  taxRate: 0.3,
-};
+let counter = 0;
+export function newMember(role: Member["role"]): Member {
+  counter += 1;
+  const child = role === "child";
+  return {
+    id: `m-${Date.now()}-${counter}`,
+    role,
+    profiles: [],
+    primaryVisits: child ? 2 : 1,
+    specialistVisits: 0,
+    urgentCareVisits: 0,
+    erVisits: 0,
+    labsImaging: child ? 0 : 1,
+    genericRx: 0,
+    brandRx: 0,
+  };
+}
 
-/** Sensible starting answers for each life event; the user can change all of them. */
 export function householdFor(event: LifeEvent): Household {
-  switch (event) {
-    case "turning26":
-      return { ...DEFAULT_HOUSEHOLD, coverage: "employee", primaryVisits: 2, specialistVisits: 0, emergencyFund: 1500 };
-    case "baby":
-      return { ...DEFAULT_HOUSEHOLD, coverage: "family", primaryVisits: 8, specialistVisits: 4, bigEvent: "baby" };
-    default:
-      return { ...DEFAULT_HOUSEHOLD };
+  const base: Household = {
+    members: [newMember("you")],
+    emergencyFund: 3000,
+    includeTaxes: false,
+    taxRate: 0.3,
+    currentPlanId: null,
+  };
+  if (event === "turning26") return { ...base, emergencyFund: 1500 };
+  if (event === "baby") {
+    const you = newMember("you");
+    const spouse = { ...newMember("spouse"), profiles: ["pregnancy" as const] };
+    return { ...base, members: [you, spouse], emergencyFund: 4000 };
   }
+  return base;
 }

@@ -17,28 +17,37 @@ Decision-support tools exist (Nayya, ALEX, Healthee), but they are sold to emplo
 
 ## How it works
 
-1. **Read** — a serverless function sends the uploaded PDF/image to Google Gemini, which returns each medical plan as structured JSON (`api/extract.js`). The user reviews and edits every number.
-2. **Ask** — six questions: who's covered, doctor visits, specialist visits, prescriptions, planned big events (baby/surgery) and emergency savings.
-3. **Calculate** — a deterministic engine (`src/lib/calc.ts`) computes the yearly cost of each plan in three scenarios:
+1. **Read** — the browser extracts the PDF text locally (pdf.js); only text is sent to a serverless function that asks Google Gemini to return each medical plan as structured JSON with short source quotes (`api/extract.js`). Scans/images fall back to sending the image. Missing numbers stay empty — never silently $0. The user reviews every number.
+2. **Describe the household** — each person (you, spouse, children) with care profiles instead of diagnoses (ongoing condition, therapy, pregnancy, specialty medication, planned surgery, young child) plus visits, urgent care, ER, labs and monthly medications.
+3. **Calculate** — a deterministic engine (`src/lib/calc.ts`) prices every service for every person under every plan:
+   - copays where the plan has them, otherwise deductible → coinsurance;
+   - embedded vs. aggregate family deductibles;
+   - out-of-pocket max capped per person and per family;
+   - three scenarios: light, expected, bad year (+ an unplanned hospital stay).
 
 ```
-total = premiums + out-of-pocket − employer HSA money − tax savings
-out-of-pocket: copays, or deductible then coinsurance, capped at the out-of-pocket max
+net yearly cost = premiums + medical bills − employer HSA money (− tax savings, optional)
+simple what-if model:  O(S) = min(M, min(S, D) + c × max(S − D, 0))
 ```
 
-AI only reads the document. **All math is plain TypeScript with unit tests** (`src/lib/calc.test.ts`), so results are reproducible and never "hallucinated".
+AI only reads the document. **All math is plain TypeScript with unit tests** (`src/lib/calc.test.ts`, including the hand-checked worked example from our methodology), so results are reproducible.
 
-4. **Recommend** — best plan, savings vs. the worst option, a bad-year risk warning, and how much to put in the HSA/FSA (FSA is reduced to avoid forfeiting money).
+4. **Compare** — lowest estimated cost, difference vs. your current plan, a what-if chart where you can see the lines cross, HSA/FSA amount, a pre-enrollment checklist, and an explicit "Assumptions & limits" section. Results can be saved as PDF via print.
 
 ## Business model
 
 | Tier | Price | What you get |
 |---|---|---|
-| Free | $0 | Recommendation, 3-scenario breakdown, HSA/FSA amount, share link |
-| Year Pass | $29/yr per household | Spouse-plan comparison, deductible & FSA tracker, deadline reminders, free life-event re-checks |
-| Life Event | $12 one-time | Re-check after a new job, turning 26, marriage or a baby |
+| Free | $0 | Manual entry, household & care profiles, 3 scenarios, what-if chart, PDF export |
+| Decision Pack (planned) | $19 one-time, one coverage decision, 90 days | AI import of several documents with sources, spouse-employer comparison, detailed report; refund if the document isn't supported |
 
-We never take insurer commissions — the recommendation is only about the user's money. Demand is seasonal (open enrollment), so revenue is smoothed by annual billing, FSA/HSA deadlines (Dec–Apr) and year-round life events.
+During the hackathon beta everything is free and checkout is a demo. We never take insurer commissions. One payment per decision instead of a subscription, because choosing a plan is a once-a-year job.
+
+## Privacy
+
+- No accounts, no database. Answers live in the browser tab (sessionStorage) and are never put in URLs.
+- PDFs are read locally; only extracted text goes to the AI, and it is not logged or stored by the app.
+- We ask about kinds of care, not diagnoses.
 
 ## Tech stack (all free tiers)
 
@@ -46,7 +55,7 @@ We never take insurer commissions — the recommendation is only about the user'
 - Vercel (hosting + one serverless function)
 - Google Gemini API free tier (document extraction)
 - Stripe Payment Links in test mode (checkout demo)
-- No database: results are encoded in the share link, documents are never stored.
+- No database: answers stay in the browser tab; documents are never stored.
 
 ## Project structure
 
@@ -56,9 +65,9 @@ src/lib/calc.ts           Cost engine (scenarios, deductible, coinsurance, OOP m
 src/lib/calc.test.ts      Unit tests for the engine
 src/lib/assumptions.ts    Price assumptions and 2026 IRS limits in one place
 src/lib/normalize.ts      Validates AI output into safe Plan objects
-src/lib/share.ts          Shareable result links without a database
+src/lib/importDoc.ts      Local PDF text extraction + call to the extraction API
 src/data/demo.ts          Fictional "Acme Corp" sample plans
-src/components/           Landing, PlanEditor, Survey, Results, Pricing
+src/components/           Landing, PlanEditor, HouseholdForm, Results, WhatIfChart, Pricing, Illustrations
 ```
 
 ## Run locally
@@ -81,6 +90,6 @@ To test document upload locally, install the Vercel CLI and run `vercel dev` wit
 
 - Cost of care uses national ballpark prices (`assumptions.ts`), not your local prices.
 - Doctor networks and drug formularies are not checked yet — the app tells users to confirm with HR.
-- Family deductibles are treated as aggregate (non-embedded).
+- Separate drug deductibles, out-of-network care, tiered networks and mid-year enrollment are not modeled yet.
 
 PlanMath is an educational calculator, not insurance, medical, tax or financial advice.

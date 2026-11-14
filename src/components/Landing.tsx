@@ -1,6 +1,8 @@
+import { Baby, Briefcase, CalendarCheck, Calculator, FileSearch, Lock, PartyPopper, PencilLine, ShieldCheck, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { LIFE_EVENTS } from "../lib/lifeEvents";
 import type { LifeEvent } from "../lib/types";
+import { HeroIllustration } from "./Illustrations";
 
 interface Props {
   lifeEvent: LifeEvent;
@@ -10,7 +12,12 @@ interface Props {
   onUpload: (file: File) => Promise<void>;
 }
 
-const MAX_BYTES = 4 * 1024 * 1024;
+const EVENT_ICONS: Record<LifeEvent, JSX.Element> = {
+  openEnrollment: <CalendarCheck size={16} />,
+  newJob: <Briefcase size={16} />,
+  turning26: <PartyPopper size={16} />,
+  baby: <Baby size={16} />,
+};
 
 export function Landing({ lifeEvent, onLifeEvent, onDemo, onManual, onUpload }: Props) {
   const input = useRef<HTMLInputElement>(null);
@@ -21,88 +28,131 @@ export function Landing({ lifeEvent, onLifeEvent, onDemo, onManual, onUpload }: 
   async function handleFile(file: File | undefined) {
     if (!file) return;
     setError(null);
-    if (file.size > MAX_BYTES) {
-      setError("That file is over 4 MB. Try a screenshot of just the plan comparison table.");
-      return;
-    }
     setBusy(true);
     try {
       await onUpload(file);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong. Try the sample company.");
+      setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
       setBusy(false);
+      if (input.current) input.current.value = "";
     }
   }
 
   return (
-    <section className="hero">
-      <p className="eyebrow">Independent · no sign-up · we don't sell insurance</p>
-      <h1>
-        Pick the health plan that <span className="accent">actually costs you less.</span>
-      </h1>
-      <p className="lead">
-        Most employees pick their health plan by gut feeling and overpay hundreds to thousands of
-        dollars a year. Upload your employer's benefits guide — we do the math for your family in
-        3 minutes.
-      </p>
+    <>
+      <section className="hero">
+        <div className="hero-text">
+          <p className="eyebrow">
+            <ShieldCheck size={16} /> Independent · no sign-up · we never sell insurance
+          </p>
+          <h1>
+            Compare your employer health plans <span className="accent">in dollars.</span>
+          </h1>
+          <p className="lead">
+            A low premium doesn't mean a low yearly cost. PlanMath turns your benefits guide into one
+            clear table and shows what each plan would cost your household in a light, expected and
+            bad year.
+          </p>
 
-      <div className="chips" role="radiogroup" aria-label="What's happening for you?">
-        {LIFE_EVENTS.map((e) => (
-          <button
-            key={e.key}
-            role="radio"
-            aria-checked={lifeEvent === e.key}
-            className={`chip ${lifeEvent === e.key ? "chip-on" : ""}`}
-            onClick={() => onLifeEvent(e.key)}
-          >
-            {e.label}
+          <p className="label">What's happening for you?</p>
+          <div className="chips" role="radiogroup" aria-label="What's happening for you?">
+            {LIFE_EVENTS.map((e) => (
+              <button
+                key={e.key}
+                role="radio"
+                aria-checked={lifeEvent === e.key}
+                className={`chip ${lifeEvent === e.key ? "chip-on" : ""}`}
+                onClick={() => onLifeEvent(e.key)}
+              >
+                {EVENT_ICONS[e.key]} {e.label}
+              </button>
+            ))}
+          </div>
+          {tip && <p className="tip">{tip}</p>}
+
+          <div className="cta-row">
+            <button className="btn btn-primary btn-lg" disabled={busy} onClick={() => input.current?.click()}>
+              <Upload size={18} /> {busy ? "Reading your document…" : "Upload benefits guide"}
+            </button>
+            <button className="btn btn-ghost btn-lg" disabled={busy} onClick={onDemo}>
+              Try the demo
+            </button>
+          </div>
+          <button className="link small" onClick={onManual} disabled={busy}>
+            <PencilLine size={14} /> or type in your plans by hand
           </button>
-        ))}
-      </div>
-      {tip && <p className="tip">💡 {tip}</p>}
+          <input
+            ref={input}
+            type="file"
+            accept="application/pdf,image/png,image/jpeg,image/webp"
+            hidden
+            onChange={(e) => handleFile(e.target.files?.[0])}
+          />
+          {busy && (
+            <div className="loading" role="status">
+              <span className="spinner" /> Reading the plans from your document — usually 10–30 seconds…
+            </div>
+          )}
+          {error && (
+            <div className="error-box" role="alert">
+              <strong>We couldn't read that document.</strong> {error}
+              <div className="row-tight">
+                <button className="btn btn-small" onClick={() => input.current?.click()}>
+                  Try again
+                </button>
+                <button className="btn btn-small btn-ghost" onClick={onManual}>
+                  Enter plans by hand
+                </button>
+              </div>
+            </div>
+          )}
+          <p className="fineprint">
+            <Lock size={12} /> PDFs are read in your browser; only the text is sent to our AI to find the
+            numbers. Please remove names and member IDs before uploading.
+          </p>
+        </div>
+        <HeroIllustration />
+      </section>
 
-      <div className="cta-row">
-        <button className="btn btn-primary" disabled={busy} onClick={() => input.current?.click()}>
-          {busy ? "Reading your document…" : "Upload benefits guide (PDF or screenshot)"}
-        </button>
-        <button className="btn btn-ghost" disabled={busy} onClick={onDemo}>
-          Try with a sample company
-        </button>
-      </div>
-      <input
-        ref={input}
-        type="file"
-        accept="application/pdf,image/png,image/jpeg,image/webp"
-        hidden
-        onChange={(e) => handleFile(e.target.files?.[0])}
-      />
-      {error && (
-        <p className="error">
-          {error}{" "}
-          <button className="link" onClick={onManual}>
-            Enter plans manually
-          </button>
-        </p>
-      )}
+      <section className="how">
+        <h2>How it works</h2>
+        <div className="how-grid">
+          <div className="how-card">
+            <span className="how-icon"><FileSearch size={22} /></span>
+            <h3>1. We read your plans</h3>
+            <p>Upload your benefits guide or rate sheet. AI pulls out premiums, deductibles, copays and HSA money — you check every number.</p>
+          </div>
+          <div className="how-card">
+            <span className="how-icon"><PencilLine size={22} /></span>
+            <h3>2. You describe your year</h3>
+            <p>Who's covered, how often you see doctors, medications and anything planned — like a baby or surgery. No diagnoses needed.</p>
+          </div>
+          <div className="how-card">
+            <span className="how-icon"><Calculator size={22} /></span>
+            <h3>3. Code does the math</h3>
+            <p>Transparent, tested formulas compare every plan in three scenarios. AI never invents the totals.</p>
+          </div>
+        </div>
+      </section>
 
-      <div className="stats">
+      <section className="stats">
         <div>
           <strong>61%</strong>
-          <span>of employees chose a plan that wasn't the best deal for them</span>
+          <span>of employees in a large-employer study picked a plan that cost more than another option no matter how much care they used</span>
         </div>
         <div>
-          <strong>~$1,700</strong>
-          <span>average yearly overpayment for picking the wrong plan</span>
+          <strong>$7,471</strong>
+          <span>average yearly family premium paid by workers in 2026, before deductibles and copays</span>
         </div>
         <div>
-          <strong>$4.5B</strong>
-          <span>lost by FSA holders to "use it or lose it" in 2023</span>
+          <strong>$1,955</strong>
+          <span>average single-coverage general deductible in 2026</span>
         </div>
-      </div>
-      <p className="fineprint">
-        Sources: Carnegie Mellon study via Money.com; TIAA Institute; Money.com FSA analysis.
+      </section>
+      <p className="fineprint center">
+        Sources: Bhargava, Loewenstein & Sydnor (study of one large US employer); KFF 2026 Employer Health Benefits Survey.
       </p>
-    </section>
+    </>
   );
 }
